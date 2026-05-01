@@ -2,9 +2,9 @@
 | ----------------- | -------------------------------------------------------------------------------------------------- |
 | Affected Product  | MediaTek Dimensity 1080/7050 (MT6877) system-on-chip (SoC) with integrated 5G baseband             |
 | Affected Firmware | `MOLY.NR15.R3.TC8.PR5.SP.V5.P141` (older versions may also be affected)                            |
-| CVE ID            | [CVE-2025-20792](https://www.cve.org/CVERecord?id=CVE-2025-20792)                                  |
+| CVE IDs           | [CVE-2025-20792](https://www.cve.org/CVERecord?id=CVE-2025-20792), [CVE-2026-20422](https://www.cve.org/CVERecord?id=CVE-2026-20422), [CVE-2026-20421](https://www.cve.org/CVERecord?id=CVE-2026-20421), [CVE-2026-20402](https://www.cve.org/CVERecord?id=CVE-2026-20402), [CVE-2026-20401](https://www.cve.org/CVERecord?id=CVE-2026-20401), [CVE-2026-20420](https://www.cve.org/CVERecord?id=CVE-2026-20420) |
 | Vendor Website    | [https://www.mediatek.com](https://www.mediatek.com)                                               |
-| Identified in     | July 2025                                                                                          |
+| Identified in     | July - August 2025                                                                                 |
 | Identified by     | IoT Lab, University of Applied Sciences Upper Austria, Campus Hagenberg                            |
 | Website           | [https://www.fh-ooe.at/si/](https://www.fh-ooe.at/si/)                                             |
 | Team              | Denis Krämer B.Sc., Dieter Vymazal M.Sc., DI Markus Zeilinger                                      |
@@ -24,9 +24,9 @@ During the 5G NR initial attachment procedure, unauthenticated radio resource co
 
 An attacker can use a malicious gNB to send modified RRC setup messages to nearby MediaTek basebands and continuously trigger a modem reset, which results in a loss of mobile network connectivity for these subscribers until the attack is stopped. The attack requires no knowledge of any confidential information stored on the universal integrated circuit cards (UICCs) of the targets, because the RRC setup message is sent by the network to the baseband before any mutual authentication (5G-AKA) is performed. Only the mobile country code (MCC) and mobile network code (MNC) of the target's network is required to successfully execute such an attack. Since the [ITU-T assigns and publishes the MCC/MNC of public networks](http://handle.itu.int/11.1002/pub/82153a48-en), and only a handful of them exist per country, we argue that this requirement adds little complexity to the attack. Moreover, while the attack requires physical proximity to the target, it requires no interaction on behalf of the user.
 
-## Proof of concept
+## Proof of Concept
 
-In the following proof of concept (PoC) video for vulnerability V1, a modified RRC setup message is sent to the baseband upon connecting to a malicious nearby gNB. An exception in the firmware is triggered and the modem restarts, which can be verified by the Android Debug Bridge (adb) logs of the smartphone. The adb logs contain further information about the location of the exception. Moreover, a temporary loss of connectivity of the Android smartphone can be observed.
+In the following proof of concept (PoC) exploitation video for vulnerability V1, a modified RRC setup message is sent to the baseband upon connecting to a malicious nearby gNB. An exception in the firmware is triggered and the modem restarts, which can be verified by the Android Debug Bridge (adb) logs of the smartphone. The adb logs contain further information about the location of the exception. Moreover, a temporary loss of connectivity of the Android smartphone can be observed.
 
 <video controls muted preload><source src="/mediatek_mt6877_baseband_vulnerabilities/assets/videos/V1_poc_exploit_2x.mp4" type="video/mp4"></video>
 
@@ -42,35 +42,147 @@ Triggering vulnerability V1 results in the following adb log entry:
 [Fatal error(MPU_NOT_ALLOW)] err_code1:0x0000001D err_code2:0x90FE3166 err_code3:0x00000000
 ```
 
-To reproduce this issue, starting from the MAC-NR layer, change the byte at offset 123 of a valid RRC setup message to any of the following values: `{0x42}` or `{0x4c}`, e.g. `{0x4c}` (as shown in figure 1). This corresponds to changing the 1st and 2nd byte of the `pdsch-ServingCellConfig` field inside the RRC payload, e.g. to `{0x09, 0x90}`. According to Wireshark, this changes its `setup` into a `release` field. Moreover, this modification alters several of the configuration lists contained in the subsequent `csi-MeasConfig setup` field.
+To reproduce this issue, starting from the MAC-NR layer, change the byte at offset 123 of a valid RRC setup message to any of the following values: `{0x42}` or `{0x4c}`, e.g. `{0x4c}` (as shown in Figure 1). This corresponds to changing the 1st and 2nd byte of the `pdsch-ServingCellConfig` field inside the RRC payload, e.g. to `{0x09, 0x90}`. According to Wireshark, this changes its `setup` into a `release` field. Moreover, this modification alters several of the configuration lists contained in the subsequent `csi-MeasConfig setup` field.
 
-<details>
-<summary>Figure 1: Comparison of the original and modified RRC setup message for vulnerability V1 in Wireshark (click to show).</summary>
+<details open>
+<summary>Figure 1: Comparison of the original and modified RRC setup message for vulnerability V1 in Wireshark.</summary>
 <img src="assets/images/V1_rrc_setup_original_vs_modified.png" alt="">
 </details>
 
-Note: vulnerability V1 can also be triggered by changing the byte at offset 128 of a valid RRC setup message to the value `{0xe0}`.
-
-## Vulnerability V2: invalid csi-MeasConfig setup ([CVE-2025-20792](https://www.cve.org/CVERecord?id=CVE-2025-20792))
-
-Triggering vulnerability V2 results in the following adb log entry:
+Note: this vulnerability can also be triggered by changing the byte at offset 128 of a valid RRC setup message to the value `{0xe0}` or `{0xe1}`. The latter results in the following adb log entry (note the different `err_code2`):
 
 ```
 [Fatal error(MPU_NOT_ALLOW)] err_code1:0x0000001D err_code2:0x90FE3088 err_code3:0x00000000
 ```
 
-To reproduce this issue, starting from the MAC-NR layer, change the byte at offset 128 of a valid RRC setup message to the value `{0xe1}` (as shown in figure 2). This corresponds to changing the 2nd and 3rd byte of the `csi-MeasConfig setup` field inside the RRC payload, e.g. to `{0x5c, 0x30}`. According to Wireshark, this alters the type of the therein contained `csi-SSB-ResourceSetToAddModList`, `csi-ResourceConfigToAddModList` and `csi-ReportConfigToAddModList` fields or changes their contents to invalid values.
+This corresponds to changing the 2nd and 3rd byte of the `csi-MeasConfig setup` field inside the RRC payload to `{0x5c, 0x30}`. According to Wireshark, this alters the type of the therein contained `csi-SSB-ResourceSetToAddModList`, `csi-ResourceConfigToAddModList` and `csi-ReportConfigToAddModList` fields or changes their contents to invalid values.
 
-<details>
-<summary>Figure 2: Comparison of the original and modified RRC setup message for vulnerability V2 in Wireshark (click to show).</summary>
+## Vulnerability V2: invalid pdsch-Config and truncated uplinkConfig ([CVE-2026-20422](https://www.cve.org/CVERecord?id=CVE-2026-20422))
+
+Triggering vulnerability V2 results in any of the following adb log entries:
+
+```
+[Fatal error(task)] err_code1:0x00003107 err_code2:0x00010008 err_code3:0xCCCCCCCC
+[Fatal error(task)] err_code1:0x00003107 err_code2:0x00010040 err_code3:0xCCCCCCCC
+[Fatal error] err_code1:0x00000020 err_code2:0x7CE70FC3 err_code3:0x00000000
+[ASSERT] file:dsp3/coresonic/msonic/modem/tx/nr/tx/src/nr_tx_hwctrl.c line:2258
+```
+
+To reproduce this issue, starting from the MAC-NR layer, change the following bytes at the respective offsets of a valid RRC setup message (as shown in Figure 2):
+
+| Offset | Value |
+| ------ | ----- |
+| 60     | 0xe5  |
+| 61     | 0xdc  |
+
+This corresponds to changing the 46th to 48th byte inside the RRC payload to `{0x1c, 0xbb, 0x89}`. According to Wireshark, this alters the `pdsch-Config` field and truncates the `uplinkConfig` field, which are both contained in the `spCellConfig` field.
+
+<details open>
+<summary>Figure 2: Comparison of the original and modified RRC setup message for vulnerability V2 in Wireshark.</summary>
 <img src="assets/images/V2_rrc_setup_original_vs_modified.png" alt="">
 </details>
 
-Note: triggering vulnerability V2 results in a different `err_code2` compared to vulnerability V1.
+Note: After the crash, the modem hangs for several minutes and requires a subsequent reset in order to resume normal operation (i.e. re-establish connectivity with the mobile network). Occasionally, the modem crashes again with the following adb log entry:
 
-## Vulnerabilities V3 - V11
+```
+[Others] MD watchdog timeout interrupt
+```
 
-We identified 9 additional vulnerabilities which were marked as duplicates by MediaTek. Once they have been publicly disclosed, we will update this section with further details.
+The loss of connectivity sometimes persists even after a modem reset, necessitating a manual reboot of the UE in order to resume normal operation.
+
+## Vulnerability V3: invalid csi-ResourceConfigToAddModList and csi-ReportConfigToAddModList ([CVE-2026-20421](https://www.cve.org/CVERecord?id=CVE-2026-20421))
+
+Triggering vulnerability V3 results in the following adb log entry:
+
+```
+[Fatal error(MPU_NOT_ALLOW)] err_code1:0x0000001D err_code2:0x90FE3AD4 err_code3:0x00000001
+```
+
+To reproduce this issue, starting from the MAC-NR layer, change the following bytes at the respective offsets of a valid RRC setup message (as shown in Figure 3):
+
+| Offset | Value |
+| ------ | ----- |
+| 153    | 0xaa  |
+| 154    | 0x33  |
+
+This corresponds to changing the 139th to 141st byte inside the RRC payload to `{0x15, 0x46, 0x60}`. According to Wireshark, this alters the `csi-ResourceConfigToAddModList` and `csi-ReportConfigToAddModList` inside the `csi-MeasConfig` field.
+
+<details open>
+<summary>Figure 3: Comparison of the original and modified RRC setup message for vulnerability V3 in Wireshark.</summary>
+<img src="assets/images/V3_rrc_setup_original_vs_modified.png" alt="">
+</details>
+
+## Vulnerability V4: invalid and truncated spCellConfig ([CVE-2026-20402](https://www.cve.org/CVERecord?id=CVE-2026-20402))
+
+Triggering vulnerability V4 results in the following adb log entry:
+
+```
+[ASSERT] file:mcu/l1/nl1/internal/md97/src/tx/nr_tx_database_mcu.c line:4058
+```
+
+To reproduce this issue, starting from the MAC-NR layer, change the following bytes at the respective offsets of a valid RRC setup message (as shown in Figure 4):
+
+| Offset | Value |
+| ------ | ----- |
+| 36     | 0xa9  |
+| 37     | 0x04  |
+| 38     | 0x8d  |
+| 39     | 0x81  |
+
+This corresponds to changing the 23rd to 26th byte inside the RRC payload to `{0x20, 0x91, 0xb0, 0x3f}`. According to Wireshark, this alters and truncates the `spCellConfig` field. Notably, it changes the type of several fields contained therein, leading to their reinterpretation as `radioLinkMonitoringConfig` and `uplinkBWP-ToAddModList` fields.
+
+<details open>
+<summary>Figure 4: Comparison of the original and modified RRC setup message for vulnerability V4 in Wireshark.</summary>
+<img src="assets/images/V4_rrc_setup_original_vs_modified.png" alt="">
+</details>
+
+## Vulnerability V5: invalid monitoringSymbolsWithinSlot ([CVE-2026-20401](https://www.cve.org/CVERecord?id=CVE-2026-20401))
+
+Triggering vulnerability V5 results in the following adb log entry:
+
+```
+[ASSERT] file:dsp3/coresonic/msonic/modem/brp/nr/nr_cbrp/src/nr_cbrp_cfg_task.c line:4890
+```
+
+To reproduce this issue, starting from the MAC-NR layer, change the following bytes at the respective offsets of a valid RRC setup message (as shown in Figure 5):
+
+| Offset | Value |
+| ------ | ----- |
+| 50     | 0x17  |
+| 51     | 0xbf  |
+
+This corresponds to changing the 37th and 38th byte inside the RRC payload to `{0xf7, 0xe0}`. According to Wireshark, this changes the `monitoringSymbolsWithinSlot` field of the `searchSpacesToAddModList` inside the `spCellConfig pdcch-Config` field to an invalid value.
+
+<details open>
+<summary>Figure 5: Comparison of the original and modified RRC setup message for vulnerability V5 in Wireshark.</summary>
+<img src="assets/images/V5_rrc_setup_original_vs_modified.png" alt="">
+</details>
+
+## Vulnerability V6: invalid pucch-Config and pusch-Config ([CVE-2026-20420](https://www.cve.org/CVERecord?id=CVE-2026-20420))
+
+Triggering vulnerability V6 results in the following adb log entry:
+
+```
+[ASSERT] file:dsp3/coresonic/msonic/modem/tx/nr/tx/src/nr_tx_pwr_ctrl.c line:4691
+```
+
+To reproduce this issue, starting from the MAC-NR layer, change the following bytes at the respective offsets of a valid RRC setup message (as shown in Figure 6):
+
+| Offset | Value |
+| ------ | ----- |
+| 94     | 0xc9  |
+| 95     | 0x84  |
+| 96     | 0x51  |
+| 97     | 0x44  |
+| 98     | 0xc3  |
+| 99     | 0x69  |
+
+This corresponds to changing the 80th to 85th byte inside the RRC payload to `{0x39, 0x30, 0x8a, 0x28, 0x98, 0x6d}`. According to Wireshark, this alters the `pucch-Config` and `pusch-Config` fields inside the `spCellConfig uplinkConfig` field, and truncates the remaining RRC setup message.
+
+<details open>
+<summary>Figure 6: Comparison of the original and modified RRC setup message for vulnerability V6 in Wireshark.</summary>
+<img src="assets/images/V6_rrc_setup_original_vs_modified.png" alt="">
+</details>
 
 ## Affected Product and Firmware
 
@@ -86,7 +198,7 @@ SHA-256 hash of the affected baseband firmware image (bundled by Xiaomi):
 
 ## Solution
 
-MediaTek identified a common root cause for the vulnerabilities V1 - V2 and publicly disclosed the issue as part of their [December 2025 Product Security Bulletin](https://corp.mediatek.com/product-security-bulletin/December-2025). Moreover, MediaTek stated that they have released updated baseband firmware which fixes these vulnerabilities. MediaTek recommends that users reach out to their device original equipment manufacturer (OEM) if they would like to confirm which baseband firmware version includes the patch.
+MediaTek publicly disclosed vulnerability V1 as part of their [December 2025 Product Security Bulletin](https://corp.mediatek.com/product-security-bulletin/December-2025) and the vulnerabilities V2 - V6 as part of their [February 2026 Product Security Bulletin](https://corp.mediatek.com/product-security-bulletin/February-2026). Moreover, MediaTek stated that they have released updated baseband firmware which fixes these vulnerabilities. MediaTek recommends that users reach out to their device original equipment manufacturer (OEM) if they would like to confirm which baseband firmware version includes the patch.
 
 ## Vendor Statement
 
@@ -96,9 +208,11 @@ The vendor has requested to include the following official statement by Tiger Hs
 
 ## Communication Timeline
 
+### Vulnerability Report 1 (Vulnerability V1)
+
 | Date       | Sender       | Description |
 | ---------- | ------------ | ----------- |
-| 2025-08-04 | Denis Krämer | Contacted MediaTek using their PGP public key and attached the vulnerability report. |
+| 2025-08-04 | Denis Krämer | Contacted MediaTek using their PGP public key and attached the first vulnerability report. |
 | 2025-08-08 | -            | Received information that the mail has been rejected by MediaTek's mail server due to its size. |
 | 2025-08-08 | Denis Krämer | Provided the vulnerability report in two chunks. |
 | 2025-08-20 | Denis Krämer | Reminded MediaTek of the 90 days disclosure deadline. |
@@ -115,12 +229,12 @@ The vendor has requested to include the following official statement by Tiger Hs
 | 2025-09-16 | MediaTek     | Requests a link to the blog where the advisories will be published. |
 | 2025-09-16 | Denis Krämer | Provided an example of a previous advisory from IoT-Lab-FH-OOE. |
 | 2025-09-17 | MediaTek     | Thanks for the additional information. |
-| 2025-09-18 | MediaTek     | Clarifies that the vulnerabilities V3 - V11 have been classified as duplicates. |
-| 2025-09-19 | MediaTek     | States that the vulnerabilities V1 - V2 share the same root cause and have received a high severity rating. |
-| 2025-09-22 | -            | MediaTek shares the fix for the vulnerabilities V1 - V2 with their OEM partners (according to a statement by MediaTek from 2025-11-25). |
+| 2025-09-18 | MediaTek     | Clarifies that some of the vulnerabilities have been classified as duplicates (these were omitted from this advisory). |
+| 2025-09-19 | MediaTek     | States that two vulnerabilities share the same root cause and have received a high severity rating (these have been cumulated in this advisory). |
+| 2025-09-22 | -            | MediaTek shares the fix for vulnerability V1 with their OEM partners (according to a statement by MediaTek from 2025-11-25). |
 | 2025-09-23 | Denis Krämer | Requested the CVE IDs and provided the information for the acknowledgements page. |
 | 2025-09-25 | MediaTek     | Acknowledges the information, states that CVE IDs for duplicate findings will be available after their public disclosure. |
-| 2025-10-14 | MediaTek     | Assigns CVE-2025-20792 for the vulnerabilities V1 - V2, plans to release a patch and disclose them after an additional two months. |
+| 2025-10-14 | MediaTek     | Assigns CVE-2025-20792 to vulnerability V1, plans to release a patch and disclose it after an additional two months. |
 | 2025-10-16 | Denis Krämer | Inquired whether CVE-2025-20792 will be included in MediaTek's December 2025 product security bulletin. |
 | 2025-10-16 | MediaTek     | Clarifies that CVE-2025-20792 will be included in their December 2025 product security bulletin. |
 | 2025-11-06 | MediaTek     | Provides an official statement to be included in the advisory, requests a draft before public release. |
@@ -139,18 +253,54 @@ The vendor has requested to include the following official statement by Tiger Hs
 | 2025-11-26 | Denis Krämer | Provided the revised draft of the advisory. |
 | 2025-11-26 | MediaTek     | Thanks for the additional information. |
 | 2025-12-01 | -            | MediaTek releases their December 2025 security bulletin. |
-| 2025-12-01 | Denis Krämer | Asked to correct the credit information for CVE-2025-20792 on their acknowledgements page, since it was missing a word (the location of my university). |
-| 2025-12-01 | MediaTek     | Stated that the credit information was updated. |
+| 2025-12-01 | Denis Krämer | Asked to correct the credit information on their acknowledgements page, since it was incomplete. |
+| 2025-12-01 | MediaTek     | States that the credit information was updated. |
 | 2025-12-01 | Denis Krämer | Asked to verify if the update was successful, since it still showed the old information. |
 | 2025-12-01 | -            | The credit information was corrected. |
-| 2025-12-02 | MediaTek     | Stated that the credit information was already updated. |
+| 2025-12-02 | MediaTek     | States that the credit information was already updated. |
+
+### Vulnerability Report 2 (Vulnerabilities V2 - V6)
+
+| Date       | Sender       | Description |
+| ---------- | ------------ | ----------- |
+| 2025-10-07 | Denis Krämer | Contacted MediaTek using their PGP public key and attached the second vulnerability report. |
+| 2025-10-08 | MediaTek     | Acknowledges receipt of the report. |
+| 2025-10-16 | MediaTek     | Inquires if a public disclosure is planned. |
+| 2025-10-16 | Denis Krämer | Communicated the 90 days disclosure plan with the intention of a simultaneous disclosure. |
+| 2025-10-21 | MediaTek     | Is still reviewing the report, states that a disclosure in February 2026 is likely. |
+| 2025-10-21 | Denis Krämer | Confirmed that the vulnerabilities will be kept confidential until their official disclosure. |
+| 2025-10-23 | MediaTek     | Requests additional information on vulnerability V2. |
+| 2025-10-23 | Denis Krämer | Provided the requested information to MediaTek. |
+| 2025-10-27 | MediaTek     | Confirms receipt of the information. |
+| 2025-10-29 | MediaTek     | Provides an intermediary update on their assessment of the reported issues (any issues marked as duplicates were omitted from this advisory). |
+| 2025-11-03 | MediaTek     | Is unable to reproduce vulnerability V2, asks to reproduce the issue on a Dimensity 9400 (MT6991)-based device. |
+| 2025-11-03 | Denis Krämer | Asked if MediaTek it is willing to provide such a device, alternatively offered to update a Dimensity 1080 (MT6877)-based device to the latest firmware to try to reproduce the issue there. |
+| 2025-11-03 | MediaTek     | States that it cannot provide such a device and recommends using their latest chipsets for security testing. |
+| 2025-11-03 | Denis Krämer | Informed MediaTek that I am not able to perform the requested tests without such a device, asked if MediaTek is interested in maintaining the security of its older chipsets. |
+| 2025-11-04 | MediaTek     | Clarifies that it still regards issues for its older chipsets as valid. |
+| 2025-11-04 | MediaTek     | Provides an intermediary update on their assessment of the reported issues, requests further information on vulnerability V2. |
+| 2025-11-04 | MediaTek     | Requests even more information on vulnerability V2. |
+| 2025-11-04 | Denis Krämer | Provided the requested information to MediaTek. |
+| 2025-11-04 | MediaTek     | Acknowledges the additional information. |
+| 2025-11-07 | Denis Krämer | Informed MediaTek that I will provide a crash dump for vulnerability V2 once Xiaomi has granted the bootloader unlock for the testing device. |
+| 2025-11-17 | MediaTek     | States that it was able to reproduce vulnerability V2, plans to disclose the vulnerabilities V2 - V6 in their February 2026 security bulletin. |
+| 2025-11-19 | Denis Krämer | Thanked MediaTek for the information. |
+| 2025-11-20 | MediaTek     | Provides further information on their assessment of the other reported issues. |
+| 2025-12-01 | MediaTek     | States that it will disclose the issues in February 2026 along with the previous credit information. |
+| 2026-01-19 | MediaTek     | Asks for a draft of the advisory. |
+| 2026-01-20 | Denis Krämer | Replied that I require more time to finalize the draft. |
+| 2026-03-16 | Denis Krämer | Provided a draft of the advisory. |
+| 2026-03-17 | MediaTek     | Acknowledges receipt of the draft. |
+| 2026-04-20 | Denis Krämer | Inquired about the current status on reviewing the draft. |
+| 2026-04-21 | MediaTek     | States that it has reviewed the draft and has no comments. |
 
 ## Version History
 
-| Date       | Version | Changes                                    |
-| ---------- | ------- | ------------------------------------------ |
-| 2025-11-24 | v0.1    | Initial draft                              |
-| 2025-11-25 | v0.2    | Incorporated changes from MediaTek         |
-| 2025-11-26 | v0.3    | Cosmetic changes                           |
-| 2025-12-01 | v0.4    | Updated timeline                           |
-| 2025-12-02 | v1.0    | Initial release of vulnerabilities V1 - V2 |
+| Date       | Version | Changes                                   |
+| ---------- | ------- | ----------------------------------------- |
+| 2025-11-24 | v0.1    | Initial draft                             |
+| 2025-11-25 | v0.2    | Incorporated changes from MediaTek        |
+| 2025-11-26 | v0.3    | Cosmetic changes                          |
+| 2025-12-01 | v0.4    | Updated timeline                          |
+| 2025-12-02 | v1.0    | Initial release of vulnerability V1       |
+| 2026-05-01 | v2.0    | Add disclosure of vulnerabilities V2 - V6 |
